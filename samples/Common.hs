@@ -21,3 +21,6 @@ monadio = undefined
 
 func :: a -> b -> MaybeT IO c
 func = undefined
+
+negfunc :: IO a -> IO b
+negfunc = undefined
