@@ -37,6 +37,9 @@ bidirectional judgments, we are viewing `M` (a part of the "type") as input to
 
 Here are some proposed rules for the judgments:
 
+(dmwit asks: hum, haven't we agreed that the RHS of arrows are monadic? why
+aren't they in the app rules?)
+
     (app-<=)
     G |- a <= M (B -> A)
     G |- b => M B
