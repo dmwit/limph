@@ -1,5 +1,6 @@
 {-# LANGUAGE FlexibleInstances #-}
 
+import Control.Applicative
 import Control.Arrow
 import Control.Monad.RWS
 import Data.Universe
@@ -38,7 +39,7 @@ instance Read Letter where
 baseSupply = map (map unLetter) (tail universe)
 
 data UnificationConstraint
-	= MonadVar :<= ([Constraint], MonadVar)
+	= Subsumption Context MType [Constraint] MType
 	| Type := Type
 	| ScopeError Variable
 	deriving (Eq, Ord, Show, Read)
@@ -64,9 +65,11 @@ TermVar s ==> m = do
 		Nothing -> tell [ScopeError s] >> return (error "lol, I need a better monad")
 		Just (Forall vs cs (MType m' t)) -> do
 			vs' <- uniques vs
-			tell [m :<= (subst vs' vs cs, subst vs' vs m')]
-			return t
+			vt  <- unique
+			tell [Subsumption context (MType m (TypeVar vt)) (subst vs' vs cs) (MType (subst vs' vs m') t)]
+			return (TypeVar vt)
 
+unique = head <$> uniques [undefined]
 uniques vs = do
 	(vs', unused) <- gets (splitAt (length vs))
 	put unused
@@ -86,3 +89,56 @@ instance Subst [Constraint] where
 
 tc :: Context -> Term -> MType -> [UnificationConstraint]
 tc ctxt e mt = case runRWS (e <== mt) ctxt baseSupply of (a, s, w) -> w
+
+-- Okay, this clearly isn't right. Imagine trying to typecheck:
+--
+-- bool nil nothing :: Maybe [a]
+--
+-- in the context:
+--
+-- bool :: a -> a -> a
+-- nil :: [a]
+-- nothing :: Maybe a
+--
+-- We can try to write this in the syntax above:
+--
+-- let ctxt = [("if", Forall ["a"] [] (MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a"))))), ("nil", Forall ["b"] [] (MType "[]" (TypeVar "b"))), ("nothing", Forall ["c"] [] (MType "Maybe" (TypeVar "c")))]
+--     term = (TermVar "if" :@ TermVar "nil") :@ TermVar "nothing"
+--     ty   = MType "Maybe" (TermVar "[d]")
+-- in tc ctxt term ty
+--
+-- But that definition for ty is clearly wrong: it's not a type-level
+-- application, and it's got a free (type) variable. The output of tc is:
+-- [Subsumption [("if",Forall ["a"] [] (MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a")))))
+--              ,("nil",Forall ["b"] [] (MType "[]" (TypeVar "b")))
+--              ,("nothing",Forall ["c"] [] (MType "Maybe" (TypeVar "c")))
+--              ]
+--              (MType "Maybe" (TypeVar "b"))
+--              []
+--              (MType "Maybe" (TypeVar "c"))
+-- ,Subsumption [("if",Forall ["a"] [] (MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a")))))
+--              ,("nil",Forall ["b"] [] (MType "[]" (TypeVar "b")))
+--              ,("nothing",Forall ["c"] [] (MType "Maybe" (TypeVar "c")))
+--              ]
+--              (MType "Maybe" (TypeVar "d"))
+--              []
+--              (MType "[]" (TypeVar "b"))
+-- ,Subsumption [("if",Forall ["a"] [] (MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a")))))
+--              ,("nil",Forall ["b"] [] (MType "[]" (TypeVar "b")))
+--              ,("nothing",Forall ["c"] [] (MType "Maybe" (TypeVar "c")))
+--              ]
+--              (MType "Maybe" (TypeVar "f"))
+--              []
+--              (MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a"))))
+-- ,TypeVar "f" := (TypeVar "d" :-> MType "Maybe" (TypeVar "b" :-> MType "Maybe" (TypeVar "[d]")))]
+--
+-- the output of trying to check "bool :: a -> a -> Maybe a" in the above context:
+-- [Subsumption [("if", Forall ["a"] [] (MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a")))))
+--              ,("nil", Forall ["b"] [] (MType "[]" (TypeVar "b")))
+--              ,("nothing",Forall ["c"] [] (MType "Maybe" (TypeVar "c")))
+--              ]
+--              (MType "Identity" (TypeVar "b"))
+--              []
+--              (MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a" :-> MType "Identity" (TypeVar "a"))))
+-- ,TypeVar "b" := (TypeVar "a" :-> MType "Identity" (TypeVar "a" :-> MType "Maybe" (TypeVar "a")))
+-- ]

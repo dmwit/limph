@@ -68,3 +68,10 @@ We haven't worked out just what the `G |- A <= B` judgment should look like
 yet, but it at least needs to know about return. (dmwit asks: Why? Can't
 remember.) We conjecture that `(morph)`, `(var)`, and one of either `(app-<=)`
 or `(app-=>)` makes a pretty decent system.
+
+So, good next steps:
+1. try to write down the `G |- A <= B` relation, which probably ought to
+   include rules for "lift" and "return" and the specialized Id-"lift".
+2. write down the typing rule for let
+3. how annoying is type-level application?
+4. can using the standard rule instead of the nonstandard one reduce the number of monad law applications we need to use to get something reasonable?
