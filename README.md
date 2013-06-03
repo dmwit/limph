@@ -60,7 +60,7 @@ aren't they in the app rules?)
 
     (var)
     G(x) = s
-    G |= M t <= s
+    G |= s <= M t
     -------------
     G |- x => M t
 
@@ -74,4 +74,5 @@ So, good next steps:
    include rules for "lift" and "return" and the specialized Id-"lift".
 2. write down the typing rule for let
 3. how annoying is type-level application?
-4. can using the standard rule instead of the nonstandard one reduce the number of monad law applications we need to use to get something reasonable?
+4. can using the standard rule instead of the nonstandard one reduce the number
+   of monad law applications we need to use to get something reasonable?
