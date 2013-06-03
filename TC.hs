@@ -23,7 +23,7 @@ data Type
 	deriving (Eq, Ord, Show, Read)
 
 data Constraint = MonadVar :> MonadVar deriving (Eq, Ord, Show, Read)
-data Scheme = Forall [String] [Constraint] MType deriving (Eq, Ord, Show, Read)
+data Scheme = Forall [Variable] [Constraint] MType deriving (Eq, Ord, Show, Read)
 type Context = [(Variable, Scheme)]
 
 newtype Letter = Letter { unLetter :: Char } deriving (Eq, Ord)
