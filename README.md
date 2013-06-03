@@ -76,3 +76,80 @@ So, good next steps:
 3. how annoying is type-level application?
 4. can using the standard rule instead of the nonstandard one reduce the number
    of monad law applications we need to use to get something reasonable?
+
+Vilhelm complains that maybe we shouldn't make the syntax of arrow
+types always have a monad in them. Here is a declarative system
+without that:
+
+types
+T ::= T1 -> T2
+    | T1 T2
+    | a
+
+typeschemes
+S ::= forall as. Cs => T
+
+contraints
+C ::=  m1 ≤ m2
+
+terms
+t ::= x
+    | t1 t2
+    | \x. t
+    | let x=t1 in t2
+
+contexts
+G ::= empty
+    | G, x:S
+
+
+Typechecking and type synthesis
+(the judgements are
+   G, Cs |- t ==m==> T
+   G, Cs |- t <==m== T
+  where G, Cs, t and m are inputs, T is either output or input)
+
+G,Cs |- t1 ==m==> T1
+Cs |- T1 ≤ m (T11 -> m T12)
+G,Cs |- t2 <==m== m T11
+---------------------------------- app
+G,Cs |- t1 t2 ==m==> m T12
+
+
+G,Cs |- t2 ==m==> T11'
+Cs |- T11' ≤ m T11
+G,Cs |- t1 <==m== m (T11 -> m T12)
+-------------------------------------- app (non-standard rule)
+G,Cs |- t1 t2 <==m== m T12
+
+G(x) = forall as. Cs' => T
+Cs implies Cs'
+-------------------------------- var
+G,Cs |- x ==m==> T
+
+
+Subtyping (the judgement is Cs |- T1 ≤ T2)
+
+C |- T2 ≤ T2'
+----------------------------- eta
+C |- T1->T2 ≤ T1->T2'
+
+----------------------------- return
+C |- T ≤ m T
+
+C |= m1 ≤ m2
+----------------------------- lift
+G |- m1 T ≤ m2 T
+
+
+C |- T1 ≤ T2
+C |- T2 ≤ T3
+--------------------------- trans
+C |- T1 ≤ T3
+
+
+This system is not algorithmic: the subtyping judgement has trans in it,
+and the application rule(s) calls the subtyping judgement in a way
+where it is not quite clear what is input and output.
+
+We expect all the elaboration be come from the use of the subtyping judgement.
