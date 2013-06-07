@@ -141,7 +141,6 @@ C |= m1 ≤ m2
 ----------------------------- lift
 G |- m1 T ≤ m2 T
 
-
 C |- T1 ≤ T2
 C |- T2 ≤ T3
 --------------------------- trans
@@ -153,3 +152,23 @@ and the application rule(s) calls the subtyping judgement in a way
 where it is not quite clear what is input and output.
 
 We expect all the elaboration be come from the use of the subtyping judgement.
+
+Notes from July 7:
+
+Can we implement the case of the ≤ judgement that we need? Here are two functions which kindof do it:
+
+fun1 : Given T and m, output the best substitution s and best types T1, T2 such that either T ≤ T1->m T2 or T ≤ m (T1 -> m T2).
+
+fun1 ( T1->T2, m) = T1 and mT2 , null substitution
+fun1 ( n T, m) = check n≤m and output fun3(T, m)
+fun1 ( a , m) =  output substitution a := b (T1 -> m T2) 
+fun1 (otherwise) = fail
+
+fun3 : Given T and M, output the best T1, T2 such that T ≤ T1 -> m T2
+fun3 ( T1->T2, m) = T1 and m T2, null substitution
+fun3 ( a, m) = output substitution a := (T1 -> m T2)
+fun3 ( otherwise) = fail
+
+The problem here is the type variable b, which is applied as a type constructor, but ranges over either type constructors or the identity type function. This seems like a very special case of higher-order unification...
+
+
