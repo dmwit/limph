@@ -171,4 +171,24 @@ fun3 ( otherwise) = fail
 
 The problem here is the type variable b, which is applied as a type constructor, but ranges over either type constructors or the identity type function. This seems like a very special case of higher-order unification...
 
+Notes from July 10:
 
+Ok, this function was not quite right, we need an extra case for T1->mT2:
+
+fun3 : Given T and m, output the best T1, T2 such that T ≤ T1 -> m T2
+fun3 ( T1->nT2, m) when n≤m = T1 and T2, null substitution
+fun3 ( T1->T2, m) = T1 and m T2, null substitution
+fun3 ( a, m) = output substitution a := (T1 -> m T2)
+fun3 ( otherwise) = fail
+
+Note that this does not do anything special for e.g. A->m(m B). That is consistent with
+the definition of ≤ we picked. If we also wanted the elaborator to insert monadic joins,
+we could add a rule like
+
+-------------------- join
+  m (m T) ≤ m T
+
+but it seems fine to not do that.
+
+Now the question is what "best" means. See the whiteboard photo for one attempt (apparently
+not quite working yet.
