@@ -192,3 +192,30 @@ but it seems fine to not do that.
 
 Now the question is what "best" means. See the whiteboard photo for one attempt (apparently
 not quite working yet.
+
+
+Notes from September 16:
+
+1. We note that the current equational system does not talk about monad morphisms at all. We decided to not worry about this for now,
+   let's first get something working without them.
+
+Here are some possible next steps:
+
+2. Figure out how to solve the constraints. This seems to involve both unification and checking for propositional satisfiability.
+
+3. Write up an algorithmic system, and write a typechecker that generates constraints.
+
+We already have a proposed application rule. What about variable and lambda? We think something like:
+
+x:T in Gamma
+----------------
+Gamma |- x : m_p T
+
+Gamma, x:T1 |- t : T2
+--------------------------------------
+Gamma |- (\x:T1.t) : m_p (T1->T2) 
+
+Note, this only introduces one level of monads. So it doesn't match, e.g., a declarative system where you can apply a "return" rule anywhere.
+
+4. Think about what declarative system the proposed algorithmic system corresponds to.
+
