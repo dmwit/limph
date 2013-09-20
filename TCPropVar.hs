@@ -4,7 +4,6 @@
 module TCPropVar where
 
 import           Control.Applicative
-import           Control.Arrow
 import           Control.Monad.Error
 import           Control.Monad.Logic
 import           Control.Monad.State
@@ -13,7 +12,6 @@ import           Control.Unification hiding (unify)
 import           Control.Unification.IntVar
 import           Data.Default
 import           Data.Foldable
-import           Data.Function
 import           Data.Map (Map)
 import qualified Data.Map as M
 import           Data.Traversable
@@ -147,12 +145,12 @@ instance Unifiable TypeF where
   zipMatch (t1 :->: t2) (t1' :->: t2') = return ((Right (t1,t1')) :->: (Right (t2,t2')))
   zipMatch _ _ = Nothing
 
--- TODO: is LogicT State right or does it need to be StateT Logic, or what?
 newtype PropUnify_ v a = PropUnify { runPropUnify :: StateT (Map PVar Bool) Logic a }
   deriving (Alternative, Applicative, Functor, Monad, MonadPlus, MonadState (Map PVar Bool))
 
 type PropUnify = IntBindingT TypeF (PropUnify_ IntVar)
 
+ensureInMap :: (Monad m, Ord k) => m a -> k -> Map k a -> m (a, Map k a)
 ensureInMap mv k m = do
   case M.lookup k m of
     Nothing -> do
@@ -178,16 +176,20 @@ generalize t = evalStateT (go t) def where
   go (TApp t1 t2)   = liftM2 TApp (go t1) (go t2)
   go (t1 :-> t2)    = liftM2 (:->) (go t1) (go t2)
 
-(~=) :: UTerm TypeF IntVar -> UTerm TypeF IntVar -> PropUnify (UTerm TypeF IntVar)
-a ~= b = do
-  success <- runErrorT (a =:= b)
+reflectErrors :: (Monad m, Alternative m) => ErrorT e m b -> m b
+reflectErrors m = do
+  success <- runErrorT m
   case success of
-    Left  e -> empty
-    Right t -> return t
+   Left  _ -> empty
+   Right t -> return t
 
-unify' t1 t2 = do
-  u1 <- generalize t1
-  u2 <- generalize t2
+(~=) :: UTerm TypeF IntVar -> UTerm TypeF IntVar -> PropUnify (UTerm TypeF IntVar)
+a ~= b = reflectErrors (a =:= b)
+
+unify' :: Type PVar Var -> Type PVar Var -> PropUnify (UTerm TypeF IntVar)
+unify' t1_ t2_ = do
+  u1 <- generalize t1_
+  u2 <- generalize t2_
   go u1 u2
   where
   go (TypeVar uv) (TypeVar uv') = UVar uv ~= UVar uv'
@@ -197,13 +199,13 @@ unify' t1 t2 = do
       assert p True
       v1 <- freeVar
       v2 <- freeVar
-      UVar uv ~= UTerm (TAppF (UVar v1) (UVar v2))
+      _  <- UVar uv ~= UTerm (TAppF (UVar v1) (UVar v2))
       liftU2 TAppF (go (TypeVar v1) t1) (go (TypeVar v2) t2)
     pFalse = assert p False >> go (TypeVar uv) t2
   go (TypeVar uv) (t1 :-> t2) = do
     v1 <- freeVar
     v2 <- freeVar
-    UVar uv ~= UTerm (UVar v1 :->: UVar v2)
+    _  <- UVar uv ~= UTerm (UVar v1 :->: UVar v2)
     liftU2 (:->:) (go (TypeVar v1) t1) (go (TypeVar v2) t2)
   go t (TypeVar uv) = go (TypeVar uv) t
 
@@ -218,13 +220,12 @@ unify' t1 t2 = do
   go (TConst n)  (TConst n') = guard (n == n') >> return (UTerm (TConstF n))
   go _ _ = empty
 
-liftU1 :: (a -> TypeF (UTerm TypeF IntVar)) -> PropUnify a -> PropUnify (UTerm TypeF IntVar)
+liftU1 :: (a ->      TypeF (UTerm TypeF IntVar)) -> PropUnify a ->                PropUnify (UTerm TypeF IntVar)
+liftU2 :: (a -> b -> TypeF (UTerm TypeF IntVar)) -> PropUnify a -> PropUnify b -> PropUnify (UTerm TypeF IntVar)
 liftU1 = fmap   .   (UTerm .)
 liftU2 = liftA2 .  ((UTerm .) .)
 
+solutionsFor :: Type PVar Var -> Type PVar Var -> [UTerm TypeF IntVar]
 solutionsFor t1 t2 = observeAll . flip evalStateT def . runPropUnify . evalIntBindingT $ do
   s <- unify' t1 t2
-  success <- runErrorT (applyBindings s)
-  case success of
-    Left  _ -> empty
-    Right v -> return v
+  reflectErrors (applyBindings s)
