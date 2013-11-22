@@ -30,6 +30,7 @@ data TcType = TcForAll [TcTyVarBind] [TcAsst] Rho -- Forall type
             | TcTyCon QName -- Type constants
             | TcTyVar TyVar -- Always bound by a ForAll
             | TcTyApp TcType TcType -- Type application
+            | TcTyMApp Prop TcType TcType -- conditional type application 
             | MetaTv MetaTv -- A meta type variable
   deriving Eq
 
@@ -50,6 +51,9 @@ unTvBind (TcTyVarBind t _) = t
 data TyVar = BoundTv String        -- A type variable bound by a ForAll
            | SkolemTv String Uniq  -- A skolem constant; the String is
                                    -- just to improve error messages
+
+data Prop = PropTrue | PropFalse | PropOr [Prop] | MetaPv Uniq
+  deriving (Eq)
 
 data MetaTv = Meta Uniq TyRef -- Can unify with any tau-type
 

@@ -49,6 +49,13 @@ inferRho e = do
   return (ty, q)
 
 
+latent :: Prop -> Tau -> Tc Tau
+latent p tau = do
+  mm <- getCurrentMonad
+  case mm of
+    Nothing -> return tau
+    Just m  -> return (TcTyMApp p m tau)
+
 tcRho :: Exp -> Expected Rho -> Tc Q
 -- Literals
 tcRho (Lit l) expTy = do 
@@ -68,8 +75,8 @@ tcRho (Con qn) expTy = do
 -- Application: Rule APP
 tcRho (App fun arg) expTy = do
   (funTy, qfun) <- inferRho fun
-  (argTy, resTy) <- unifyFun funTy
-  qarg <- checkSigma arg argTy
+  (argTy,resTy) <- unifyFun funTy
+  qarg <- checkSigma arg argTy 
   q <- instSigma resTy expTy
   return $ qfun ++ qarg ++ q
 

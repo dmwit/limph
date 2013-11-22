@@ -10,6 +10,7 @@ import Text.PrettyPrint.HughesPJ
 import Data.List ( (\\), partition )
 import Data.Maybe (catMaybes)
 import Control.Monad (liftM)
+import Control.Applicative ( (<$>))
 
 import Language.Haskell.Exts.Syntax
 import Language.Haskell.Exts.Pretty ( prettyPrint )
@@ -18,11 +19,12 @@ import Language.Haskell.TypeCheck.InternalTypes
 
 data TcEnv = TcEnv { 
       uniqs :: IORef Uniq,
+      currentMonad :: Maybe Tau,
       vars  :: Map.Map QName (IORef Sigma),
 --      cons  :: Map.Map QName (IORef Sigma),
       types :: Map.Map QName (IORef Kappa),
       classes :: Map.Map QName (IORef Kappa),
-      supers  :: Map.Map QName [QName],
+--      supers  :: Map.Map QName [QName],
       axioms :: [TcAxiom] -- this is where instances go
 }
 
@@ -31,10 +33,11 @@ mkEmptyTcEnv = do
   uniqRef <- newIORef 0
   return $ TcEnv {
                uniqs = uniqRef,
+               currentMonad = Nothing,
                vars = Map.empty,
                types = Map.empty,
                classes = Map.empty,
-               supers = Map.empty,
+--               supers = Map.empty,
                axioms = []
              }
 
@@ -50,21 +53,26 @@ mkTcEnv vs ts cs = do
                classes = Map.fromList cs'
              }
 
+data Constraint = Constraint
 
-newtype Tc a = Tc (TcEnv -> IO (Either ErrMsg a))
-unTc :: Tc a -> (TcEnv -> IO (Either ErrMsg a))
+newtype Tc a = Tc (TcEnv -> IO (Either ErrMsg (a, [Constraint])))
+unTc :: Tc a -> (TcEnv -> IO (Either ErrMsg (a, [Constraint])))
 unTc (Tc a) = a
 
 type ErrMsg = Doc
 
 instance Monad Tc where
-  return x = Tc (\_env -> return (Right x))
+  return x = Tc (\_env -> return (Right (x,[])))
   fail err = Tc (\_env -> return (Left (text err)))
   m >>= k = Tc (\env -> do 
                   r1 <- unTc m env
                   case r1 of
                     Left err -> return (Left err)
-                    Right v -> unTc (k v) env)
+                    Right (v,cs) -> do
+                       x <- unTc (k v) env
+                       case x of
+                         Left err -> return (Left err)
+                         Right (a,cs') -> return (Right (a,cs++cs')))
 
 instance Functor Tc where
   fmap = liftM
@@ -77,14 +85,24 @@ check :: Bool -> Doc -> Tc ()
 check True _ = return ()
 check False d = failTc d
 
-runTc :: TcEnv -> Tc a -> IO (Either ErrMsg a)
-runTc env (Tc tc) = tc env
+solveConstraints :: [Constraint] -> IO (Either ErrMsg ())
+solveConstraints cs = return (Right ())
 
+runTc :: TcEnv -> Tc a -> IO (Either ErrMsg a)
+runTc env (Tc tc) = do
+  x <- tc env
+  case x of 
+    Left err -> return (Left err)
+    Right (a,cs) -> do 
+      y <- solveConstraints cs
+      case y of
+        Left err -> return (Left err)
+        Right () -> return (Right a)
 
 lift :: IO a -> Tc a
 -- Lift a state transformer action into the typechecker monad
 -- ignores the environment and always succeeds
-lift st = Tc (\_env -> do { r <- st; return (Right r) })
+lift st = Tc (\_env -> do { r <- st; return (Right (r,[])) })
 
 newTcRef :: a -> Tc (IORef a)
 newTcRef v = lift (newIORef v)
@@ -98,11 +116,17 @@ writeTcRef r v = lift (writeIORef r v)
 data Expected a = Infer (IORef a) | Check a
 
 --------------------------------------------------
+--      Dealing with constraints                --
+--------------------------------------------------
+addConstraint :: Constraint -> Tc ()
+addConstraint c = Tc (\env -> return (Right ((),[c])))
+
+--------------------------------------------------
 --      Dealing with the type environment       --
 --------------------------------------------------
 
 getEnv :: Tc TcEnv
-getEnv = Tc (\ env -> return (Right env))
+getEnv = Tc (\ env -> return (Right (env,[])))
 
 getEnvField :: (TcEnv -> a) -> Tc a
 getEnvField f = getEnv >>= return . f
@@ -172,6 +196,9 @@ lookupAux f n = do m <- getEnvField f
                      Just rty -> readTcRef rty
                      Nothing -> failTc (text "Not in scope:" <+> quotes (text $ prettyPrint n))
 
+getCurrentMonad :: Tc (Maybe Tau)
+getCurrentMonad = getEnvField currentMonad
+
 
 getAxioms :: Tc [TcAxiom]
 getAxioms = getEnvField axioms
@@ -193,6 +220,9 @@ newSkolemTyVar :: TyVar -> Tc TyVar
 newSkolemTyVar tv = do uniq <- newUnique
                        return (SkolemTv (tyVarName tv) uniq)
 
+newPropVar :: Tc Prop
+newPropVar = MetaPv <$> newUnique
+
 readTv :: MetaTv -> Tc (Maybe Tau)
 readTv (Meta _ ref) = readTcRef ref
 
@@ -203,7 +233,7 @@ newUnique :: Tc Uniq
 newUnique = Tc (\ (TcEnv {uniqs = ref}) ->
                     do uniq <- readIORef ref
                        writeIORef ref (uniq + 1)
-                       return (Right uniq))
+                       return (Right (uniq,[])))
 
 newKindVar :: Tc Kappa
 newKindVar = newTyVarTy
@@ -410,11 +440,35 @@ unifyUnboundVar tv1 ty2
 
 -----------------------------------------
 
-unifyFun :: Rho -> Tc (Sigma, Rho)
+unifyFun :: Rho -> Tc (Prop,Sigma, Prop,Rho)
+unifyFun tau = do mm <- getCurrentMonad
+                  case mm of
+                    Nothing -> do (arg,res) <- unifyPlainFun tau
+                                  return (PropFalse, arg, PropFalse, res)
+                    Just m -> unifyMonFun m tau
+
+unifyMonFun :: Tau -> Rho -> Tc (Prop,Sigma, Prop,Rho)
+-- (p,arg,q,res) <- unifyFun m fun
+-- unifies 'fun' with 'm_p (arg -> m_q res)'
+unifyMonFun m (TcTyFun arg res) 
+    = do q <- newPropVar
+         res_ty <- newTyVarTy
+         unify res (TcTyMApp q m res_ty)
+         return (PropFalse, arg, q, res_ty)
+unifyMonFun m tau
+    = do p <- newPropVar
+         arg_ty <- newTyVarTy
+         q <- newPropVar
+         res_ty <- newTyVarTy
+         unify tau (TcTyMApp p m (arg_ty --> (TcTyMApp q m res_ty)))
+         return (p, arg_ty, q, res_ty)
+
+
+unifyPlainFun :: Rho -> Tc (Sigma, Rho)
 -- (arg,res) <- unifyFun fun
 -- unifies 'fun' with '(arg -> res)'
-unifyFun (TcTyFun arg res) = return (arg,res)
-unifyFun tau
+unifyPlainFun (TcTyFun arg res) = return (arg,res)
+unifyPlainFun tau
     = do arg_ty <- newTyVarTy
          res_ty <- newTyVarTy
          unify tau (arg_ty --> res_ty)
